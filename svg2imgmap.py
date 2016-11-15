@@ -13,6 +13,7 @@ SVG transforms are ignored completely.
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 
+from cgi import escape
 from itertools import islice
 import math
 
@@ -191,7 +192,8 @@ if __name__ == '__main__':
 
     print('-->')
 
-    print('<html><body><img src="{}" usemap="#imgmap">'.format(args.img_file))
+    print('<html><body><img src="{}" usemap="#imgmap">'.format(
+          escape(args.img_file)))
 
     print('<map id="imgmap">')
     for layer in _get_layers(root):
@@ -210,3 +212,4 @@ if __name__ == '__main__':
     print('</map>')
 
     print('</body></html>')
+
