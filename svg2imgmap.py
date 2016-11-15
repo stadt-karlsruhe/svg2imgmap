@@ -160,6 +160,21 @@ def _simplify_straight_lines(poly):
     return result
 
 
+def _get_svg_size(root):
+    viewbox = map(int, root.get('viewBox').split())
+    width = root.get('width', '100%')
+    height = root.get('height',' 100%')
+    if width.endswith('%'):
+       width = 0.01 * float(width[:-1]) * viewbox[2]
+    else:
+        width = float(width)
+    if height.endswith('%'):
+       height = 0.01 * float(height[:-1]) * viewbox[3]
+    else:
+        height = float(height)
+    return width, height
+
+
 if __name__ == '__main__':
     import argparse
 
@@ -176,8 +191,7 @@ if __name__ == '__main__':
     print('<!--')
 
     # Calculate size of one pixel in SVG units
-    svg_width = float(root.get('width'))
-    svg_height = float(root.get('height'))
+    svg_width, svg_height = _get_svg_size(root)
     print('SVG size is {} x {}'.format(svg_width, svg_height))
     img_width, img_height = img.size
     print('Raster image size is {} x {}'.format(img_width, img_height))
