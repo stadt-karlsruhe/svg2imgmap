@@ -7,7 +7,7 @@ Does not generate the actual raster image, use your SVG editor for that.
 Make sure that you export the whole page, otherwise the generated
 coordinates won't match.
 
-SVG transforms are ignored completely.
+Only ``<path>`` elements are converted into image map areas.
 '''
 
 from __future__ import (absolute_import, division, print_function,
@@ -16,6 +16,7 @@ from __future__ import (absolute_import, division, print_function,
 from cgi import escape
 from itertools import islice
 import math
+import re
 
 from lxml import etree
 import svg.path
@@ -24,6 +25,169 @@ import svg.path
 SVG_NS = '{http://www.w3.org/2000/svg}'
 
 INKSCAPE_NS = '{http://www.inkscape.org/namespaces/inkscape}'
+
+
+class SVGTransform(object):
+    '''
+    An SVG transform.
+    '''
+    @classmethod
+    def identity(cls):
+        return MatrixTransform(1, 0, 0, 1, 0, 0)
+
+    @classmethod
+    def matrix(cls, a, b, c, d, e, f):
+        return MatrixTransform(a, b, c, d, e, f)
+
+    @classmethod
+    def translate(cls, x, y=0):
+        return MatrixTransform(1, 0, 0, 1, x, y)
+
+    @classmethod
+    def scale(cls, x, y=None):
+        if y is None:
+            y = x
+        return MatrixTransform(x, 0, 0, y, 0, 0)
+
+    @classmethod
+    def rotate(cls, a, x=None, y=None):
+        '''
+        Rotation transform.
+
+        ``a`` is the angle in degrees.
+        '''
+        if (x is None) and (y is None):
+            # Rotation about origin
+            a = math.radians(a)
+            c = math.cos(a)
+            s = math.sin(a)
+            return MatrixTransform(c, s, -s, c, 0, 0)
+        elif (x is not None) and (y is not None):
+            # Rotation about (x, y)
+            return ChainedTransform([
+                cls.translate(x, y),
+                cls.rotate(a),
+                cls.translate(-x, -y)
+            ])
+        else:
+            raise ValueError('``x`` and ``y`` must both be given or not.')
+
+    @classmethod
+    def skewx(cls, a):
+        '''
+        Transform for skewing along X axis.
+
+        ``a`` is the angle in degrees.
+        '''
+        return MatrixTransform(1, 0, math.tan(math.radians(a)), 1, 0, 0)
+
+    @classmethod
+    def skewy(cls, a):
+        '''
+        Transform for skewing along Y axis.
+
+        ``a`` is the angle in degrees.
+        '''
+        return MatrixTransform(1, math.tan(math.radians(a)), 0, 1, 0, 0)
+
+    @classmethod
+    def parse(cls, s):
+        '''
+        Parse an SVG transform string.
+        '''
+        transforms = []
+        methods = {name: getattr(cls, name.lower()) for name in
+                   'matrix translate scale rotate skewX skewY'.split()}
+        s = s.strip()
+        while s:
+            open_index = s.index('(')
+            close_index = s.index(')', open_index)
+            name = s[:open_index].strip()
+            args = re.split(r'[^\d\.-]', s[open_index + 1:close_index])
+            args = [float(a) for a in args if a]
+            transforms.append(methods[name](*args))
+            s = s[close_index + 1:]
+        if len(transforms) == 1:
+            return transforms[0]
+        else:
+            return ChainedTransform(transforms)
+
+    def apply(self, points):
+        '''
+        Apply this transform to points.
+
+        ``points`` yields 2-tuples ``(x, y)``.
+
+        Yields the transformed points.
+        '''
+        raise NotImplementedError('Must be implemented by subclasses.')
+
+
+class MatrixTransform(SVGTransform):
+
+    def __init__(self, a, b, c, d, e, f):
+        '''
+        Constructor.
+
+        The arguments specify the following components of the
+        transform's matrix::
+
+            a  c  e
+            b  d  f
+            0  0  1
+        '''
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
+        self.e = e
+        self.f = f
+
+    def apply(self, points):
+        for x, y in points:
+            tx = self.a * x + self.c * y + self.e
+            ty = self.b * x + self.d * y + self.f
+            yield tx, ty
+
+
+class ChainedTransform(SVGTransform):
+    '''
+    A chain of multiple SVG transforms.
+    '''
+    def __init__(self, transforms):
+        '''
+        Constructor.
+
+        ``transforms`` is a list of transforms that will be applied
+        *from right to left*.
+        '''
+        self.transforms = list(transforms)
+
+    def apply(self, points):
+        for transform in reversed(self.transforms):
+            points = transform.apply(points)
+        for point in points:
+            yield point
+
+
+def _get_transform(node):
+    '''
+    Get the transform for an SVG element.
+
+    Walks up the tree and collects the transforms and returns an
+    ``SVGTransform``.
+    '''
+    transforms = []
+    while node is not None:
+        s = node.get('transform')
+        if s:
+            transforms.append(SVGTransform.parse(s))
+        node = node.getparent()
+    if not transforms:
+        return SVGTransform.identity()
+    if len(transforms) == 1:
+        return transforms[0]
+    return ChainedTransform(reversed(transforms))
 
 
 # From the (old) itertools documentation
@@ -78,12 +242,8 @@ def _segment_to_polyline(segment, start=0, end=1, start_point=None,
         end_point = segment.point(end)
     mid = (start + end) / 2
     mid_point = segment.point(mid)
-    #print('{}@{} - {}@{} - {}@{}'.format(start, start_point, mid, mid_point, end, end_point))
     naive_mid_point = 0.5 * (start_point + end_point)
     error = abs(naive_mid_point - mid_point)
-    #print('  naive: {}'.format(naive_mid_point))
-    #print('  error: {}'.format(error))
-    #print('  depth: {}'.format(depth))
     if (error > max_error) or (depth < min_depth):
         poly = _concatenate(
             _segment_to_polyline(segment, start, mid, start_point, mid_point,
@@ -161,7 +321,10 @@ def _simplify_straight_lines(poly):
 
 
 def _get_svg_size(root):
-    viewbox = map(int, root.get('viewBox').split())
+    '''
+    Get the size of an SVG document in SVG units.
+    '''
+    viewbox = map(float, root.get('viewBox').split())
     width = root.get('width', '100%')
     height = root.get('height',' 100%')
     if width.endswith('%'):
@@ -177,12 +340,14 @@ def _get_svg_size(root):
 
 if __name__ == '__main__':
     import argparse
-
     from PIL import Image
 
     parser = argparse.ArgumentParser(description='Create image maps from SVGs')
     parser.add_argument('svg_file', metavar='SVG', help='SVG file')
     parser.add_argument('img_file', metavar='RASTER', help='Raster image file')
+    parser.add_argument('--layer', '-l', metavar='LAYER', action='append',
+                        help='Use only the layer with this Inkscape label '
+                        + '(can be specified multiple times)')
     args = parser.parse_args()
 
     root = etree.parse(args.svg_file).getroot()
@@ -195,14 +360,10 @@ if __name__ == '__main__':
     print('SVG size is {} x {}'.format(svg_width, svg_height))
     img_width, img_height = img.size
     print('Raster image size is {} x {}'.format(img_width, img_height))
-    pixel_width = svg_width / img_width
-    pixel_height = svg_height / img_height
-    max_error = min(pixel_width, pixel_height)
-    print('Pixel size in SVG units is {} x {}'.format(pixel_width,
-          pixel_height))
-    print('max_error = {}'.format(max_error))
     x_factor = img_width / svg_width
     y_factor = img_height / svg_height
+    print('Scale factors are {}, {}'.format(x_factor, y_factor))
+    max_error = 1e-5
 
     print('-->')
 
@@ -211,17 +372,20 @@ if __name__ == '__main__':
 
     print('<map id="imgmap">')
     for layer in _get_layers(root):
-        #print(layer.get(INKSCAPE_NS + 'label'))
+        label = layer.get(INKSCAPE_NS + 'label')
+        if args.layer and label not in args.layer:
+            continue
+        print('<!-- Layer "{}" -->'.format(label))
         for node in _get_paths(layer):
             path = svg.path.parse_path(node.get('d'))
             poly = _path_to_polyline(path, max_error=max_error)
-            poly = [(int(p.real * x_factor), int(p.imag * y_factor))
-                    for p in poly]
+            poly = _get_transform(node).apply((p.real, p.imag) for p in poly)
+            poly = [(int(p[0] * x_factor), int(p[1] * y_factor)) for p in poly]
             poly = list(_strip_adjacent_duplicates(poly))
             poly = _simplify_straight_lines(poly)
             alt = node.get(INKSCAPE_NS + 'label', '')
             id = node.get('id')
-            area = _create_area(poly, 'FIXME ' + alt, alt=alt, id=id)
+            area = _create_area(poly, 'FIXME', alt=alt, id=id)
             print(etree.tostring(area))
     print('</map>')
 
