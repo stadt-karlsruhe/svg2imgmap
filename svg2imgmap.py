@@ -2,21 +2,17 @@
 
 '''
 Create a HTML image map from an SVG image.
-
-Does not generate the actual raster image, use your SVG editor for that.
-Make sure that you export the whole page, otherwise the generated
-coordinates won't match.
-
-Only ``<path>`` elements are converted into image map areas.
 '''
 
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 
+import argparse
 from cgi import escape
 from itertools import islice
 import math
 import re
+import textwrap
 
 from lxml import etree
 import svg.path
@@ -324,7 +320,7 @@ def _get_svg_size(root):
     '''
     Get the size of an SVG document in SVG units.
     '''
-    viewbox = map(float, root.get('viewBox').split())
+    viewbox = map(float, root.get('viewBox', '0 0 0 0').split())
     width = root.get('width', '100%')
     height = root.get('height',' 100%')
     if width.endswith('%'):
@@ -338,44 +334,30 @@ def _get_svg_size(root):
     return width, height
 
 
-if __name__ == '__main__':
-    import argparse
-    from PIL import Image
+def svg2imgmap(svg_file, map_size, layers=None):
+    '''
+    Generate an HTML image map.
 
-    parser = argparse.ArgumentParser(description='Create image maps from SVGs')
-    parser.add_argument('svg_file', metavar='SVG', help='SVG file')
-    parser.add_argument('img_file', metavar='RASTER', help='Raster image file')
-    parser.add_argument('--layer', '-l', metavar='LAYER', action='append',
-                        help='Use only the layer with this Inkscape label '
-                        + '(can be specified multiple times)')
-    args = parser.parse_args()
+    ``svg_file`` s the filename of the SVG image and ``map_size`` is a
+    2-tuple specifying the width and height of the image map in pixels.
 
-    root = etree.parse(args.svg_file).getroot()
-    img = Image.open(args.img_file)
+    Layers is an option list of Inkscape layer names. If given then only
+    listed layers are exported. By default all layers are exported.
 
-    print('<!--')
-
-    # Calculate size of one pixel in SVG units
+    Returns the generated HTML code.
+    '''
+    root = etree.parse(svg_file).getroot()
     svg_width, svg_height = _get_svg_size(root)
-    print('SVG size is {} x {}'.format(svg_width, svg_height))
-    img_width, img_height = img.size
-    print('Raster image size is {} x {}'.format(img_width, img_height))
-    x_factor = img_width / svg_width
-    y_factor = img_height / svg_height
-    print('Scale factors are {}, {}'.format(x_factor, y_factor))
+    x_factor = map_size[0] / svg_width
+    y_factor = map_size[1] / svg_height
     max_error = 1e-5
-
-    print('-->')
-
-    print('<html><body><img src="{}" usemap="#imgmap">'.format(
-          escape(args.img_file)))
-
-    print('<map id="imgmap">')
+    lines = ['<map>']
     for layer in _get_layers(root):
         label = layer.get(INKSCAPE_NS + 'label')
-        if args.layer and label not in args.layer:
+        if layers and label not in layers:
             continue
-        print('<!-- Layer "{}" -->'.format(label))
+        if label:
+            lines.append('<!-- Layer "{}" -->'.format(escape(label)))
         for node in _get_paths(layer):
             path = svg.path.parse_path(node.get('d'))
             poly = _path_to_polyline(path, max_error=max_error)
@@ -385,9 +367,47 @@ if __name__ == '__main__':
             poly = _simplify_straight_lines(poly)
             alt = node.get(INKSCAPE_NS + 'label', '')
             id = node.get('id')
-            area = _create_area(poly, 'FIXME', alt=alt, id=id)
-            print(etree.tostring(area))
-    print('</map>')
+            area = _create_area(poly, href=id, alt=alt, id=id)
+            lines.append(etree.tostring(area))
+    lines.append('</map>')
+    return '\n'.join(lines)
 
-    print('</body></html>')
+
+def main():
+    '''
+    Command line entry point.
+    '''
+    description = textwrap.dedent('''\
+    Create an HTML image map from an SVG image.
+
+    <path> elements from the SVG are converted into <area> elements for the
+    image map. The path's `id` is used for the area's `id` and `href`, and
+    if the path has an Inkscape label then that is used for the area's `alt`
+    text.
+
+    The coordinate calculation assume that the whole SVG page has been exported
+    to the given raster image.
+
+    The generated HTML code is printed to STDOUT.
+    ''')
+    parser = argparse.ArgumentParser(
+            description=description,
+            formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('svg_file', metavar='SVG', help='SVG file')
+    parser.add_argument('map_width', metavar='WIDTH', type=int,
+                        help='Width of the image map in pixels')
+    parser.add_argument('map_height', metavar='HEIGHT', type=int,
+                        help='Height of the image map in pixels')
+    parser.add_argument('--layer', '-l', metavar='LAYER', action='append',
+                        help='Use only the layer with this Inkscape label '
+                        + '(can be specified multiple times)')
+    args = parser.parse_args()
+
+    html = svg2imgmap(args.svg_file, (args.map_width, args.map_height),
+                      layers=args.layer)
+    print(html)
+
+
+if __name__ == '__main__':
+    main()
 
