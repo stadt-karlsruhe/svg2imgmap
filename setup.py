@@ -75,5 +75,10 @@ setup(
     author_email='transparenz@karlsruhe.de',
     packages=find_packages(),
     install_requires=requirements,
+    entry_points={
+        'console_scripts': [
+            'svg2imgmap = svg2imgmap.__main__:main',
+        ],
+    },
 )
 

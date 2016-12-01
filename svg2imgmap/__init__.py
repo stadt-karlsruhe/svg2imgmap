@@ -28,12 +28,11 @@ Create a HTML image map from an SVG image.
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 
-import argparse
 from cgi import escape
 from itertools import islice
+import logging
 import math
 import re
-import textwrap
 
 from lxml import etree
 import svg.path
@@ -41,6 +40,8 @@ import svg.path
 
 __version__ = '0.1.0'
 
+log = logging.getLogger(__name__)
+log.addHandler(logging.NullHandler())
 
 SVG_NS = '{http://www.w3.org/2000/svg}'
 
@@ -395,44 +396,4 @@ def svg2imgmap(svg_file, map_size, layers=None):
             lines.append(etree.tostring(area))
     lines.append('</map>')
     return '\n'.join(lines)
-
-
-def main():
-    '''
-    Command line entry point.
-    '''
-    description = textwrap.dedent('''\
-    Create an HTML image map from an SVG image.
-
-    <path> elements from the SVG are converted into <area> elements for the
-    image map. The path's `id` is used for the area's `id` and `href`, and
-    if the path has an Inkscape label then that is used for the area's `alt`
-    text.
-
-    This tool does not generate the background image for the image map, only
-    the HTML code for the <map> element. The coordinate calculations assume
-    that the whole SVG page is used for the background.
-
-    The generated HTML code is printed to STDOUT.
-    ''')
-    parser = argparse.ArgumentParser(
-            description=description,
-            formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('svg_file', metavar='SVG', help='SVG file')
-    parser.add_argument('map_width', metavar='WIDTH', type=int,
-                        help='Width of the image map in pixels')
-    parser.add_argument('map_height', metavar='HEIGHT', type=int,
-                        help='Height of the image map in pixels')
-    parser.add_argument('--layer', '-l', metavar='LAYER', action='append',
-                        help='Use only the layer with this Inkscape label '
-                        + '(can be specified multiple times)')
-    args = parser.parse_args()
-
-    html = svg2imgmap(args.svg_file, (args.map_width, args.map_height),
-                      layers=args.layer)
-    print(html)
-
-
-if __name__ == '__main__':
-    main()
 
