@@ -42,12 +42,12 @@ Distributed under the MIT license, see the file `LICENSE` for details.
 
 ## Changelog
 
-# 0.1.1
+### 0.1.1
 
 - Fixed bug in SVG transform parsing
 - Fixed missing console entry point
 
-# 0.1.0
+### 0.1.0
 
 - Initial release
 
