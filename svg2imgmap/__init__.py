@@ -116,6 +116,7 @@ class SVGTransform(object):
         '''
         Parse an SVG transform string.
         '''
+        log.debug('Parsing transform string "{}"'.format(s))
         transforms = []
         methods = {name: getattr(cls, name.lower()) for name in
                    'matrix translate scale rotate skewX skewY'.split()}
@@ -124,7 +125,7 @@ class SVGTransform(object):
             open_index = s.index('(')
             close_index = s.index(')', open_index)
             name = s[:open_index].strip()
-            args = re.split(r'[^\d\.-]', s[open_index + 1:close_index])
+            args = re.split(r'[\s,]', s[open_index + 1:close_index])
             args = [float(a) for a in args if a]
             transforms.append(methods[name](*args))
             s = s[close_index + 1:]
