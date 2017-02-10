@@ -32,7 +32,13 @@ import argparse
 import logging
 import textwrap
 
-from . import log, svg2imgmap
+from . import log, load_svg, export_to_html, export_to_json
+
+
+EXPORTERS = {
+    'html': export_to_html,
+    'json': export_to_json,
+}
 
 
 def main():
@@ -61,11 +67,14 @@ def main():
                         help='Width of the image map in pixels')
     parser.add_argument('map_height', metavar='HEIGHT', type=int,
                         help='Height of the image map in pixels')
+    parser.add_argument('--debug', '-d', action='store_true', default=False,
+                        help='Output debugging information')
+    parser.add_argument('--format', '-f', choices=EXPORTERS, default='html',
+                        metavar='FORMAT', help='Output format. Either ' +
+                        '"html" (default) or "json".')
     parser.add_argument('--layer', '-l', metavar='LAYER', action='append',
                         help='Use only the layer with this Inkscape label '
                         + '(can be specified multiple times)')
-    parser.add_argument('--debug', '-d', action='store_true', default=False,
-                        help='Output debugging information')
     args = parser.parse_args()
 
     if args.debug:
@@ -73,9 +82,10 @@ def main():
         log.addHandler(handler)
         log.setLevel(logging.DEBUG)
 
-    html = svg2imgmap(args.svg_file, (args.map_width, args.map_height),
-                      layers=args.layer)
-    print(html)
+    exporter = EXPORTERS[args.format]
+    data = load_svg(args.svg_file, (args.map_width, args.map_height),
+                    layers=args.layer)
+    print(exporter(data))
 
 
 if __name__ == '__main__':

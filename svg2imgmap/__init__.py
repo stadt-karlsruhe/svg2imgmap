@@ -30,6 +30,7 @@ from __future__ import (absolute_import, division, print_function,
 
 from cgi import escape
 from itertools import islice
+import json
 import logging
 import math
 import re
@@ -294,22 +295,6 @@ def _path_to_polyline(path, max_error=1e-12):
     return poly
 
 
-def _create_area(poly, href, alt='', id=None):
-    '''
-    Create an HTML ``<area>`` element.
-    '''
-    area = etree.Element('area')
-    if alt:
-        area.set('alt', alt)
-    coords = ','.join('{},{}'.format(int(p[0]), int(p[1])) for p in poly)
-    area.set('coords', coords)
-    area.set('href', href)
-    area.set('shape', 'poly')
-    if id:
-        area.set('id', id)
-    return area
-
-
 def _strip_adjacent_duplicates(it):
     '''
     Strip adjacent duplicates from an iterator.
@@ -360,30 +345,34 @@ def _get_svg_size(root):
     return width, height
 
 
-def svg2imgmap(svg_file, map_size, layers=None):
+def load_svg(svg_file, map_size, layers=None):
     '''
-    Generate an HTML image map.
+    Load layers and areas from an SVG file.
 
-    ``svg_file`` s the filename of the SVG image and ``map_size`` is a
-    2-tuple specifying the width and height of the image map in pixels.
+    ``svg_file`` is the filename of an SVG image.
 
-    Layers is an option list of Inkscape layer names. If given then only
-    listed layers are exported. By default all layers are exported.
+    ``map_size`` is a 2-tuple specifying the with and height of the
+    image map in pixels.
 
-    Returns the generated HTML code.
+    ``layers`` is an optional list of Inkscape layer names. If given
+    then only listed layers are exported. By default all layers are
+    exported.
+
+    Returns a list of layers. Each layer is a dict containing the
+    layer's label (if present) and its areas.
     '''
+    result = []
     root = etree.parse(svg_file).getroot()
     svg_width, svg_height = _get_svg_size(root)
     x_factor = map_size[0] / svg_width
     y_factor = map_size[1] / svg_height
     max_error = 1e-5
-    lines = ['<map>']
     for layer in _get_layers(root):
         label = layer.get(INKSCAPE_NS + 'label')
         if layers and label not in layers:
             continue
-        if label:
-            lines.append('<!-- Layer "{}" -->'.format(escape(label)))
+        layer_data = {'label': label, 'areas': []}
+        result.append(layer_data)
         for node in _get_paths(layer):
             path = svg.path.parse_path(node.get('d'))
             poly = _path_to_polyline(path, max_error=max_error)
@@ -391,10 +380,49 @@ def svg2imgmap(svg_file, map_size, layers=None):
             poly = [(int(p[0] * x_factor), int(p[1] * y_factor)) for p in poly]
             poly = list(_strip_adjacent_duplicates(poly))
             poly = _simplify_straight_lines(poly)
-            alt = node.get(INKSCAPE_NS + 'label', '')
-            id = node.get('id')
-            area = _create_area(poly, href=id, alt=alt, id=id)
-            lines.append(etree.tostring(area))
+            layer_data['areas'].append({
+                'polygon': poly,
+                'id': node.get('id'),
+                'label': node.get(INKSCAPE_NS + 'label', ''),
+            })
+    return result
+
+
+def export_to_html(layers):
+    '''
+    Export to HTML.
+
+    ``layers`` is a list of layers with their areas as returned by
+    ``load_svg``.
+
+    Returns the HTML string for the corresponding image map.
+    '''
+    lines = ['<map>']
+    for layer in layers:
+        lines.append('<!-- Layer "{}" -->'.format(escape(layer['label'])))
+        for area in layer['areas']:
+            element = etree.Element('area')
+            if area['label']:
+                element.set('alt', area['label'])
+            coords = ','.join('{},{}'.format(int(p[0]), int(p[1]))
+                              for p in area['polygon'])
+            element.set('coords', coords)
+            element.set('href', area['id'])
+            element.set('shape', 'poly')
+            element.set('id', area['id'])
+            lines.append(etree.tostring(element))
     lines.append('</map>')
     return '\n'.join(lines)
+
+
+def export_to_json(layers):
+    '''
+    Export to JSON.
+
+    ``layers`` is a list of layers with their areas as returned by
+    ``load_svg``.
+
+    Returns the JSON string for the data.
+    '''
+    return json.dumps(layers, separators=(',',':'))
 

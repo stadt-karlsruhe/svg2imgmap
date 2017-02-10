@@ -7,7 +7,8 @@
 ## Usage
 
     $ svg2imgmap --help
-    usage: svg2imgmap.py [-h] [--layer LAYER] SVG WIDTH HEIGHT
+    usage: svg2imgmap [-h] [--layer LAYER] [--debug] [--format FORMAT]
+                      SVG WIDTH HEIGHT
 
     Create an HTML image map from an SVG image.
 
@@ -29,6 +30,9 @@
 
     optional arguments:
       -h, --help            show this help message and exit
+      --debug, -d           Output debugging information
+      --format FORMAT, -f FORMAT
+                            Output format. Either "html" (default) or "json".
       --layer LAYER, -l LAYER
                             Use only the layer with this Inkscape label (can be
                             specified multiple times)
