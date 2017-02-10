@@ -39,12 +39,16 @@
 
 ## License
 
-Copyright (c) 2016, Stadt Karlsruhe (www.karlsruhe.de)
+Copyright (c) 2016-2017, Stadt Karlsruhe (www.karlsruhe.de)
 
 Distributed under the MIT license, see the file `LICENSE` for details.
 
 
 ## Changelog
+
+### 0.2.0
+
+- Added support for JSON export
 
 ### 0.1.1
 
